@@ -1,0 +1,349 @@
+local repo = "https://raw.githubusercontent.com/deividcomsono/Obsidian/main/"
+local Library = loadstring(game:HttpGet(repo.."Library.lua"))()
+local ThemeManager = loadstring(game:HttpGet(repo.."addons/ThemeManager.lua"))()
+local SaveManager = loadstring(game:HttpGet(repo.."addons/SaveManager.lua"))()
+
+local Options = Library.Options
+local Toggles = Library.Toggles
+
+Library.ForceCheckbox = false
+Library.ShowToggleFrameInKeybinds = true
+
+local Window = Library:CreateWindow({
+    Title = "67 cheats",
+    Footer = "67 cheats",
+    Icon = 95816097006870,
+    NotifySide = "Right",
+    ShowCustomCursor = true
+})
+
+local Tabs = {
+    Main = Window:AddTab("Main", "crosshair"),
+    ["UI Settings"] = Window:AddTab("UI Settings", "settings")
+}
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local Camera = workspace.CurrentCamera
+local LocalPlayer = Players.LocalPlayer
+
+-- Variables Aimbot
+local AimbotEnabled = false
+local AimbotWallCheck = false
+local ShowFOV = false
+local FillFOV = false
+local FOVTransparency = 0
+local FOVRadius = 300
+local FOVColor = Color3.fromRGB(255, 255, 255)
+
+-- Variables Silent Aim
+getgenv().SilentAimEnabled = false
+local SilentWallCheck = false
+local SilentShowFOV = false
+local SilentFillFOV = false
+local SilentFOVTransparency = 0
+local SilentFOVRadius = 300
+local SilentFOVColor = Color3.fromRGB(255, 255, 255)
+local activeTargetPos = nil
+local SilentAimPart = "Head"
+
+-- Dibujo de FOVs
+local FOVCircle = Drawing.new("Circle")
+FOVCircle.Thickness = 1.5
+FOVCircle.NumSides = 64
+FOVCircle.Radius = FOVRadius
+FOVCircle.Filled = false
+FOVCircle.Visible = false
+FOVCircle.ZIndex = 999
+FOVCircle.Transparency = 1
+FOVCircle.Color = FOVColor
+FOVCircle.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+
+local SilentFOVCircle = Drawing.new("Circle")
+SilentFOVCircle.Thickness = 1.5
+SilentFOVCircle.NumSides = 64
+SilentFOVCircle.Radius = SilentFOVRadius
+SilentFOVCircle.Filled = false
+SilentFOVCircle.Visible = false
+SilentFOVCircle.ZIndex = 999
+SilentFOVCircle.Transparency = 1
+SilentFOVCircle.Color = SilentFOVColor
+SilentFOVCircle.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+
+local function UpdateFOV()
+    FOVCircle.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    FOVCircle.Radius = FOVRadius
+    FOVCircle.Color = FOVColor
+    FOVCircle.Filled = FillFOV
+    FOVCircle.Transparency = 1 - (FOVTransparency / 100)
+    FOVCircle.Visible = ShowFOV and AimbotEnabled
+
+    SilentFOVCircle.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    SilentFOVCircle.Radius = SilentFOVRadius
+    SilentFOVCircle.Color = SilentFOVColor
+    SilentFOVCircle.Filled = SilentFillFOV
+    SilentFOVCircle.Transparency = 1 - (SilentFOVTransparency / 100)
+    SilentFOVCircle.Visible = SilentShowFOV and getgenv().SilentAimEnabled
+end
+
+local function isTargetValid(plr)
+    if not plr or plr == LocalPlayer then return false end
+    local char = plr.Character
+    if not char or not char:FindFirstChild("Humanoid") or char.Humanoid.Health <= 0 then return false end
+    local myT, thrT = LocalPlayer:GetAttribute("TeamID"), plr:GetAttribute("TeamID")
+    if myT ~= nil and thrT ~= nil then return tostring(myT) ~= tostring(thrT) end
+    if LocalPlayer.Team and plr.Team then return LocalPlayer.Team ~= plr.Team end
+    return true
+end
+
+local function getValidHead(char)
+    local head = char:FindFirstChild("Head")
+    if not head then return nil end
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Exclude
+    params.FilterDescendantsInstances = {LocalPlayer.Character, Camera}
+    local result = workspace:Raycast(Camera.CFrame.Position, (head.Position - Camera.CFrame.Position).Unit * 1000, params)
+    return (result == nil or result.Instance:IsDescendantOf(char)) and head or nil
+end
+
+local function GetClosestPlayerAimbot()
+    local closest = nil
+    local shortestDistance = FOVRadius
+    for _, player in pairs(Players:GetPlayers()) do
+        if isTargetValid(player) and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+            local head = player.Character:FindFirstChild("Head") or player.Character.HumanoidRootPart
+            if AimbotWallCheck then
+                local valid = getValidHead(player.Character)
+                if not valid then continue end
+            end
+            local params = RaycastParams.new()
+            params.FilterType = Enum.RaycastFilterType.Exclude
+            params.FilterDescendantsInstances = {LocalPlayer.Character, Camera}
+            local result = workspace:Raycast(Camera.CFrame.Position, (head.Position - Camera.CFrame.Position).Unit * 1000, params)
+            if result == nil or result.Instance:IsDescendantOf(player.Character) then
+                local pos, onScreen = Camera:WorldToViewportPoint(head.Position)
+                if onScreen then
+                    local distance = (Vector2.new(pos.X, pos.Y) - Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)).Magnitude
+                    if distance < shortestDistance then
+                        shortestDistance = distance
+                        closest = player
+                    end
+                end
+            end
+        end
+    end
+    return closest
+end
+
+local function GetBestSilentTarget()
+    local bestPart = nil
+    local shortestDist = math.huge
+    local center = Camera.ViewportSize / 2
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if isTargetValid(plr) then
+            local char = plr.Character
+            if char then
+                local part = char:FindFirstChild(SilentAimPart) or char:FindFirstChild("Head") or char:FindFirstChild("HumanoidRootPart")
+                if part then
+                    local pos, onScreen = Camera:WorldToViewportPoint(part.Position)
+                    if onScreen then
+                        local screenDist = (Vector2.new(pos.X, pos.Y) - center).Magnitude
+                        if screenDist <= SilentFOVRadius and screenDist < shortestDist then
+                            if SilentWallCheck then
+                                local valid = getValidHead(char)
+                                if not valid then continue end
+                            end
+                            shortestDist = screenDist
+                            bestPart = part
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return bestPart
+end
+
+RunService.RenderStepped:Connect(function()
+    UpdateFOV()
+    if not getgenv().SilentAimEnabled then
+        activeTargetPos = nil
+        return
+    end
+    local bestPart = GetBestSilentTarget()
+    activeTargetPos = bestPart and bestPart.Position or nil
+end)
+
+local old
+old = hookmetamethod(game, "__index", newcclosure(function(self, idx)
+    if getgenv().SilentAimEnabled and activeTargetPos and not checkcaller() and idx == "ViewportSize" and self == Camera then
+        local pos, on = Camera:WorldToViewportPoint(activeTargetPos)
+        if on then return Vector2.new(pos.X * 2, pos.Y * 2) end
+    end
+    return old(self, idx)
+end))
+
+-- UI Groupboxes
+local LeftGroupbox = Tabs.Main:AddLeftGroupbox("Aimbot")
+local RightGroupbox = Tabs.Main:AddRightGroupbox("Silent Aim")
+
+-- Aimbot UI
+LeftGroupbox:AddToggle("AimbotToggle", {
+    Text = "ENABLED (Aggressive)",
+    Default = false,
+    Callback = function(Value)
+        AimbotEnabled = Value
+        UpdateFOV()
+    end
+}):AddKeyPicker("AimbotKey", {
+    Default = "E",
+    Text = "Aimbot Keybind",
+    Mode = "Toggle",
+    SyncToggleState = true
+})
+
+LeftGroupbox:AddToggle("AimbotWallCheckToggle", {
+    Text = "WALL CHECK",
+    Default = false,
+    Callback = function(Value) AimbotWallCheck = Value end
+})
+
+LeftGroupbox:AddToggle("ShowFOVToggle", {
+    Text = "SHOW FOV",
+    Default = false,
+    Callback = function(Value)
+        ShowFOV = Value
+        UpdateFOV()
+    end
+}):AddColorPicker("FOVColorPicker", {
+    Default = Color3.fromRGB(255, 255, 255),
+    Title = "FOV Color",
+    Callback = function(Value)
+        FOVColor = Value
+        UpdateFOV()
+    end
+})
+
+LeftGroupbox:AddToggle("FillFOVToggle", {
+    Text = "FILL FOV",
+    Default = false,
+    Callback = function(Value)
+        FillFOV = Value
+        UpdateFOV()
+    end
+})
+
+LeftGroupbox:AddSlider("FOVTransparency", {
+    Text = "TRANSPARENCY FOV",
+    Default = 0, Min = 0, Max = 100, Rounding = 0, Suffix = "%",
+    Callback = function(Value) FOVTransparency = Value UpdateFOV() end
+})
+
+LeftGroupbox:AddSlider("FOVRadius", {
+    Text = "FOV RADIUS",
+    Default = 300, Min = 180, Max = 1000, Rounding = 0,
+    Callback = function(Value) FOVRadius = Value UpdateFOV() end
+})
+
+-- Silent Aim UI
+RightGroupbox:AddToggle("SilentAimToggle", {
+    Text = "ENABLED (Silent)",
+    Default = false,
+    Callback = function(Value)
+        getgenv().SilentAimEnabled = Value
+        UpdateFOV()
+    end
+}):AddKeyPicker("SilentAimKey", {
+    Default = "Q",
+    Text = "Silent Aim Keybind",
+    Mode = "Toggle",
+    SyncToggleState = true
+})
+
+RightGroupbox:AddToggle("SilentWallCheckToggle", {
+    Text = "WALL CHECK",
+    Default = false,
+    Callback = function(Value) SilentWallCheck = Value end
+})
+
+RightGroupbox:AddToggle("SilentShowFOVToggle", {
+    Text = "SHOW FOV",
+    Default = false,
+    Callback = function(Value)
+        SilentShowFOV = Value
+        UpdateFOV()
+    end
+}):AddColorPicker("SilentFOVColorPicker", {
+    Default = Color3.fromRGB(255, 255, 255),
+    Title = "Silent FOV Color",
+    Callback = function(Value)
+        SilentFOVColor = Value
+        UpdateFOV()
+    end
+})
+
+RightGroupbox:AddToggle("SilentFillFOVToggle", {
+    Text = "FILL FOV",
+    Default = false,
+    Callback = function(Value)
+        SilentFillFOV = Value
+        UpdateFOV()
+    end
+})
+
+RightGroupbox:AddSlider("SilentFOVTransparency", {
+    Text = "TRANSPARENCY FOV",
+    Default = 0, Min = 0, Max = 100, Rounding = 0, Suffix = "%",
+    Callback = function(Value) SilentFOVTransparency = Value UpdateFOV() end
+})
+
+RightGroupbox:AddSlider("SilentFOVRadius", {
+    Text = "FOV RADIUS",
+    Default = 300, Min = 180, Max = 1000, Rounding = 0,
+    Callback = function(Value) SilentFOVRadius = Value UpdateFOV() end
+})
+
+-- Loop Aimbot
+RunService.RenderStepped:Connect(function(dt)
+    if AimbotEnabled then
+        local target = GetClosestPlayerAimbot()
+        if target and isTargetValid(target) and target.Character then
+            local head = target.Character:FindFirstChild("Head") or target.Character:FindFirstChild("HumanoidRootPart")
+            if head then
+                Camera.CFrame = CFrame.new(Camera.CFrame.Position, head.Position)
+            end
+        end
+    end
+end)
+
+Camera:GetPropertyChangedSignal("ViewportSize"):Connect(UpdateFOV)
+
+-- Ajustes Menú
+local MenuGroup = Tabs["UI Settings"]:AddLeftGroupbox("Menu Settings")
+MenuGroup:AddToggle("KeybindMenuOpen", {
+    Default = Library.KeybindFrame.Visible,
+    Text = "Open Keybind Menu",
+    Callback = function(v) Library.KeybindFrame.Visible = v end
+})
+MenuGroup:AddLabel("Menu bind"):AddKeyPicker("MenuKeybind", {
+    Default = "RightShift",
+    NoUI = true,
+    Text = "Menu keybind"
+})
+MenuGroup:AddButton("Unload", function()
+    FOVCircle:Remove()
+    SilentFOVCircle:Remove()
+    Library:Unload()
+end)
+
+Library.ToggleKeybind = Options.MenuKeybind
+ThemeManager:SetLibrary(Library)
+SaveManager:SetLibrary(Library)
+SaveManager:IgnoreThemeSettings()
+SaveManager:SetIgnoreIndexes({"MenuKeybind"})
+ThemeManager:SetFolder("ApocalypseHub")
+SaveManager:SetFolder("ApocalypseHub/configs")
+SaveManager:BuildConfigSection(Tabs["UI Settings"])
+ThemeManager:ApplyToTab(Tabs["UI Settings"])
+pcall(function() SaveManager:LoadAutoloadConfig() end)
+Library:Notify("gg", 5)
