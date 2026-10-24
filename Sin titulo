@@ -1,349 +1,257 @@
-local repo = "https://raw.githubusercontent.com/deividcomsono/Obsidian/main/"
-local Library = loadstring(game:HttpGet(repo.."Library.lua"))()
-local ThemeManager = loadstring(game:HttpGet(repo.."addons/ThemeManager.lua"))()
-local SaveManager = loadstring(game:HttpGet(repo.."addons/SaveManager.lua"))()
+local v8 = game:GetService('Players') 
+local v10 = game:GetService('RunService') 
+local v11 = v8.LocalPlayer 
+local v12 = v11.Character or v11.CharacterAdded:Wait() 
+local v13 = v12:WaitForChild('HumanoidRootPart') 
 
-local Options = Library.Options
-local Toggles = Library.Toggles
+local voidActive = false 
+local orbActive = false
+local counterActive = false
+local menuVisible = true
 
-Library.ForceCheckbox = false
-Library.ShowToggleFrameInKeybinds = true
+local voidConn, orbConn, bringConn
+local angle = 0
 
-local Window = Library:CreateWindow({
-    Title = "67 cheats",
-    Footer = "67 cheats",
-    Icon = 95816097006870,
-    NotifySide = "Right",
-    ShowCustomCursor = true
-})
+-- Variables y caché para la lógica de UE COUNTER
+getgenv().RivalsFastMelee = false
+local cachedMeleeTables = {}
+local meleeCacheInitialized = false
 
-local Tabs = {
-    Main = Window:AddTab("Main", "crosshair"),
-    ["UI Settings"] = Window:AddTab("UI Settings", "settings")
-}
-
-local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-local Camera = workspace.CurrentCamera
-local LocalPlayer = Players.LocalPlayer
-
--- Variables Aimbot
-local AimbotEnabled = false
-local AimbotWallCheck = false
-local ShowFOV = false
-local FillFOV = false
-local FOVTransparency = 0
-local FOVRadius = 300
-local FOVColor = Color3.fromRGB(255, 255, 255)
-
--- Variables Silent Aim
-getgenv().SilentAimEnabled = false
-local SilentWallCheck = false
-local SilentShowFOV = false
-local SilentFillFOV = false
-local SilentFOVTransparency = 0
-local SilentFOVRadius = 300
-local SilentFOVColor = Color3.fromRGB(255, 255, 255)
-local activeTargetPos = nil
-local SilentAimPart = "Head"
-
--- Dibujo de FOVs
-local FOVCircle = Drawing.new("Circle")
-FOVCircle.Thickness = 1.5
-FOVCircle.NumSides = 64
-FOVCircle.Radius = FOVRadius
-FOVCircle.Filled = false
-FOVCircle.Visible = false
-FOVCircle.ZIndex = 999
-FOVCircle.Transparency = 1
-FOVCircle.Color = FOVColor
-FOVCircle.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
-
-local SilentFOVCircle = Drawing.new("Circle")
-SilentFOVCircle.Thickness = 1.5
-SilentFOVCircle.NumSides = 64
-SilentFOVCircle.Radius = SilentFOVRadius
-SilentFOVCircle.Filled = false
-SilentFOVCircle.Visible = false
-SilentFOVCircle.ZIndex = 999
-SilentFOVCircle.Transparency = 1
-SilentFOVCircle.Color = SilentFOVColor
-SilentFOVCircle.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
-
-local function UpdateFOV()
-    FOVCircle.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
-    FOVCircle.Radius = FOVRadius
-    FOVCircle.Color = FOVColor
-    FOVCircle.Filled = FillFOV
-    FOVCircle.Transparency = 1 - (FOVTransparency / 100)
-    FOVCircle.Visible = ShowFOV and AimbotEnabled
-
-    SilentFOVCircle.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
-    SilentFOVCircle.Radius = SilentFOVRadius
-    SilentFOVCircle.Color = SilentFOVColor
-    SilentFOVCircle.Filled = SilentFillFOV
-    SilentFOVCircle.Transparency = 1 - (SilentFOVTransparency / 100)
-    SilentFOVCircle.Visible = SilentShowFOV and getgenv().SilentAimEnabled
-end
-
-local function isTargetValid(plr)
-    if not plr or plr == LocalPlayer then return false end
-    local char = plr.Character
-    if not char or not char:FindFirstChild("Humanoid") or char.Humanoid.Health <= 0 then return false end
-    local myT, thrT = LocalPlayer:GetAttribute("TeamID"), plr:GetAttribute("TeamID")
-    if myT ~= nil and thrT ~= nil then return tostring(myT) ~= tostring(thrT) end
-    if LocalPlayer.Team and plr.Team then return LocalPlayer.Team ~= plr.Team end
-    return true
-end
-
-local function getValidHead(char)
-    local head = char:FindFirstChild("Head")
-    if not head then return nil end
-    local params = RaycastParams.new()
-    params.FilterType = Enum.RaycastFilterType.Exclude
-    params.FilterDescendantsInstances = {LocalPlayer.Character, Camera}
-    local result = workspace:Raycast(Camera.CFrame.Position, (head.Position - Camera.CFrame.Position).Unit * 1000, params)
-    return (result == nil or result.Instance:IsDescendantOf(char)) and head or nil
-end
-
-local function GetClosestPlayerAimbot()
-    local closest = nil
-    local shortestDistance = FOVRadius
-    for _, player in pairs(Players:GetPlayers()) do
-        if isTargetValid(player) and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
-            local head = player.Character:FindFirstChild("Head") or player.Character.HumanoidRootPart
-            if AimbotWallCheck then
-                local valid = getValidHead(player.Character)
-                if not valid then continue end
-            end
-            local params = RaycastParams.new()
-            params.FilterType = Enum.RaycastFilterType.Exclude
-            params.FilterDescendantsInstances = {LocalPlayer.Character, Camera}
-            local result = workspace:Raycast(Camera.CFrame.Position, (head.Position - Camera.CFrame.Position).Unit * 1000, params)
-            if result == nil or result.Instance:IsDescendantOf(player.Character) then
-                local pos, onScreen = Camera:WorldToViewportPoint(head.Position)
-                if onScreen then
-                    local distance = (Vector2.new(pos.X, pos.Y) - Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)).Magnitude
-                    if distance < shortestDistance then
-                        shortestDistance = distance
-                        closest = player
+local function cacheMeleeTables()
+    if meleeCacheInitialized then return end
+    meleeCacheInitialized = true
+    task.spawn(function()
+        pcall(function()
+            if getgc then
+                for _, gcVal in pairs(getgc(true)) do
+                    if type(gcVal) == "table" then
+                        if rawget(gcVal, "MeleeCooldown") or rawget(gcVal, "SwingCooldown") or rawget(gcVal, "SlashCooldown") or rawget(gcVal, "AttackCooldown") or rawget(gcVal, "HitCooldown") then
+                            table.insert(cachedMeleeTables, gcVal)
+                        end
                     end
                 end
+            end
+        end)
+    end)
+end
+
+local function toggleTableAttribute(attr, val)
+    if getgc then
+        for _, gcVal in pairs(getgc(true)) do 
+            if type(gcVal) == "table" and rawget(gcVal, attr) then 
+                gcVal[attr] = val 
+            end 
+        end 
+    end
+end
+
+local function getClosest()
+    local closest, dist = nil, math.huge
+    for _, p in pairs(v8:GetPlayers()) do
+        if p ~= v11 and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+            local sameTeam = (v11.Team ~= nil and p.Team ~= nil and v11.Team == p.Team)
+            if not sameTeam then
+                local d = (v13.Position - p.Character.HumanoidRootPart.Position).Magnitude
+                if d < dist then dist = d closest = p end
             end
         end
     end
     return closest
 end
 
-local function GetBestSilentTarget()
-    local bestPart = nil
-    local shortestDist = math.huge
-    local center = Camera.ViewportSize / 2
-    for _, plr in ipairs(Players:GetPlayers()) do
-        if isTargetValid(plr) then
-            local char = plr.Character
-            if char then
-                local part = char:FindFirstChild(SilentAimPart) or char:FindFirstChild("Head") or char:FindFirstChild("HumanoidRootPart")
-                if part then
-                    local pos, onScreen = Camera:WorldToViewportPoint(part.Position)
-                    if onScreen then
-                        local screenDist = (Vector2.new(pos.X, pos.Y) - center).Magnitude
-                        if screenDist <= SilentFOVRadius and screenDist < shortestDist then
-                            if SilentWallCheck then
-                                local valid = getValidHead(char)
-                                if not valid then continue end
-                            end
-                            shortestDist = screenDist
-                            bestPart = part
+local v20 = Instance.new('ScreenGui', v11.PlayerGui) 
+v20.Name = 'BrokiecattyVoidOrbit' 
+v20.ResetOnSpawn = false 
+
+local toggleBtn = Instance.new('TextButton', v20)
+toggleBtn.Size = UDim2.new(0, 110, 0, 35) 
+toggleBtn.Position = UDim2.new(0.8, 0, 0.4, 0) 
+toggleBtn.BackgroundColor3 = Color3.fromRGB(15, 15, 15) 
+toggleBtn.Text = 'BrokieCatty'
+toggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+toggleBtn.Font = Enum.Font.GothamBold 
+toggleBtn.TextSize = 14
+toggleBtn.Draggable = true 
+Instance.new('UICorner', toggleBtn)
+Instance.new('UIStroke', toggleBtn).Color = Color3.fromRGB(60, 40, 150)
+
+-- Ajustado tamaño a 220px de altura para acomodar 3 botones cómodamente
+local v27 = Instance.new('Frame', v20) 
+v27.Size = UDim2.new(0, 170, 0, 220) 
+v27.Position = UDim2.new(0.5, -85, 0.5, -110) 
+v27.BackgroundColor3 = Color3.fromRGB(12, 12, 18) 
+v27.Active = true 
+v27.Draggable = true 
+Instance.new('UICorner', v27)
+Instance.new('UIStroke', v27).Color = Color3.fromRGB(60, 40, 150)
+
+local v58 = Instance.new('TextLabel', v27) 
+v58.Size = UDim2.new(1, 0, 0, 35) 
+v58.BackgroundTransparency = 1 
+v58.Text = 'Brokiecatty lua' 
+v58.TextColor3 = Color3.fromRGB(220, 220, 255) 
+v58.Font = Enum.Font.GothamBold 
+v58.TextSize = 16
+
+local v70 = Instance.new('TextLabel', v27) 
+v70.Size = UDim2.new(1, 0, 0, 20) 
+v70.Position = UDim2.new(0, 0, 0, 35) 
+v70.BackgroundTransparency = 1 
+v70.Text = 'STATUS: OFF' 
+v70.TextColor3 = Color3.fromRGB(150, 150, 150) 
+v70.TextSize = 11 
+v70.Font = Enum.Font.GothamMedium 
+
+local v80 = Instance.new('TextButton', v27) 
+v80.Size = UDim2.new(0, 150, 0, 35) 
+v80.Position = UDim2.new(0, 10, 0, 60) 
+v80.BackgroundColor3 = Color3.fromRGB(35, 35, 55) 
+v80.Text = 'VOID' 
+v80.TextColor3 = Color3.fromRGB(255, 255, 255) 
+v80.Font = Enum.Font.GothamBold 
+v80.TextSize = 15 
+Instance.new('UICorner', v80)
+
+local orbBtn = Instance.new('TextButton', v27)
+orbBtn.Size = UDim2.new(0, 150, 0, 35)
+orbBtn.Position = UDim2.new(0, 10, 0, 105)
+orbBtn.BackgroundColor3 = Color3.fromRGB(35, 35, 55) 
+orbBtn.Text = 'ORBIT'
+orbBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+orbBtn.Font = Enum.Font.GothamBold
+orbBtn.TextSize = 15 
+Instance.new('UICorner', orbBtn)
+
+local counterBtn = Instance.new('TextButton', v27)
+counterBtn.Size = UDim2.new(0, 150, 0, 35)
+counterBtn.Position = UDim2.new(0, 10, 0, 150)
+counterBtn.BackgroundColor3 = Color3.fromRGB(35, 35, 55)
+counterBtn.Text = 'UE COUNTER'
+counterBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+counterBtn.Font = Enum.Font.GothamBold
+counterBtn.TextSize = 14
+Instance.new('UICorner', counterBtn)
+
+local function updateStatus()
+    local parts = {}
+    if voidActive then table.insert(parts, "VOID") end
+    if orbActive then table.insert(parts, "ORBIT") end
+    if counterActive then table.insert(parts, "COUNTER") end
+    v70.Text = (#parts > 0) and ("STATUS: " .. table.concat(parts, " & ")) or "STATUS: OFF"
+    v70.TextColor3 = (#parts > 0) and Color3.fromRGB(100, 255, 150) or Color3.fromRGB(150, 150, 150)
+end
+
+toggleBtn.MouseButton1Click:Connect(function()
+    menuVisible = not menuVisible
+    v27.Visible = menuVisible
+end)
+
+v80.Activated:Connect(function()
+    voidActive = not voidActive
+    if voidActive then
+        v80.BackgroundColor3 = Color3.fromRGB(60, 40, 150)
+        voidConn = v10.Heartbeat:Connect(function()
+            if v13 and voidActive then v13.CFrame = CFrame.new(v13.Position.X + 2e15, 999999, v13.Position.Z + 2e15) end
+        end)
+    else
+        v80.BackgroundColor3 = Color3.fromRGB(35, 35, 55)
+        if voidConn then voidConn:Disconnect() voidConn = nil end
+    end
+    updateStatus()
+end)
+
+orbBtn.Activated:Connect(function()
+    orbActive = not orbActive
+    if orbActive then
+        orbBtn.BackgroundColor3 = Color3.fromRGB(60, 40, 150)
+        orbConn = v10.Heartbeat:Connect(function()
+            local target = getClosest()
+            if target and target.Character and orbActive then
+                local hrp = target.Character:FindFirstChild("HumanoidRootPart")
+                if hrp then
+                    angle = angle + 0.18
+                    v13.CFrame = CFrame.new(hrp.Position + Vector3.new(math.cos(angle)*6, 4, math.sin(angle)*6), hrp.Position)
+                end
+            end
+        end)
+    else
+        orbBtn.BackgroundColor3 = Color3.fromRGB(35, 35, 55)
+        if orbConn then orbConn:Disconnect() orbConn = nil end
+    end
+    updateStatus()
+end)
+
+counterBtn.Activated:Connect(function()
+    counterActive = not counterActive
+    if counterActive then
+        counterBtn.BackgroundColor3 = Color3.fromRGB(60, 40, 150)
+        
+        -- Activar Rapid Fire
+        toggleTableAttribute("ShootCooldown", 0)
+        toggleTableAttribute("ShootSpread", 0)
+        toggleTableAttribute("ShootRecoil", 0)
+
+        -- Activar Fast Melee
+        getgenv().RivalsFastMelee = true
+        cacheMeleeTables()
+        pcall(function()
+            for _, gcVal in ipairs(cachedMeleeTables) do
+                if rawget(gcVal, "MeleeCooldown") then gcVal.MeleeCooldown = 0 end
+                if rawget(gcVal, "SwingCooldown") then gcVal.SwingCooldown = 0 end
+                if rawget(gcVal, "SlashCooldown") then gcVal.SlashCooldown = 0 end
+                if rawget(gcVal, "AttackCooldown") then gcVal.AttackCooldown = 0 end
+                if rawget(gcVal, "HitCooldown") then gcVal.HitCooldown = 0 end
+            end
+        end)
+
+        -- Activar Bring All Players
+        if bringConn then bringConn:Disconnect() end
+        bringConn = v10.RenderStepped:Connect(function()
+            pcall(function()
+                if not v13 then return end
+                local targetCFrame = v13.CFrame * CFrame.new(0, -2, -1)
+
+                for _, plr in ipairs(v8:GetPlayers()) do
+                    if plr ~= v11 and plr.Character then
+                        local enemyHRP = plr.Character:FindFirstChild("HumanoidRootPart")
+                        if enemyHRP then
+                            enemyHRP.CFrame = targetCFrame
+                            enemyHRP.AssemblyLinearVelocity = Vector3.zero
                         end
                     end
                 end
-            end
+            end)
+        end)
+    else
+        counterBtn.BackgroundColor3 = Color3.fromRGB(35, 35, 55)
+        
+        -- Desactivar Bring All Players
+        if bringConn then
+            bringConn:Disconnect()
+            bringConn = nil
         end
-    end
-    return bestPart
-end
+        
+        -- Desactivar Rapid Fire
+        toggleTableAttribute("ShootCooldown", 0.1)
+        toggleTableAttribute("ShootSpread", 1)
+        toggleTableAttribute("ShootRecoil", 1)
 
-RunService.RenderStepped:Connect(function()
-    UpdateFOV()
-    if not getgenv().SilentAimEnabled then
-        activeTargetPos = nil
-        return
-    end
-    local bestPart = GetBestSilentTarget()
-    activeTargetPos = bestPart and bestPart.Position or nil
-end)
-
-local old
-old = hookmetamethod(game, "__index", newcclosure(function(self, idx)
-    if getgenv().SilentAimEnabled and activeTargetPos and not checkcaller() and idx == "ViewportSize" and self == Camera then
-        local pos, on = Camera:WorldToViewportPoint(activeTargetPos)
-        if on then return Vector2.new(pos.X * 2, pos.Y * 2) end
-    end
-    return old(self, idx)
-end))
-
--- UI Groupboxes
-local LeftGroupbox = Tabs.Main:AddLeftGroupbox("Aimbot")
-local RightGroupbox = Tabs.Main:AddRightGroupbox("Silent Aim")
-
--- Aimbot UI
-LeftGroupbox:AddToggle("AimbotToggle", {
-    Text = "ENABLED (Aggressive)",
-    Default = false,
-    Callback = function(Value)
-        AimbotEnabled = Value
-        UpdateFOV()
-    end
-}):AddKeyPicker("AimbotKey", {
-    Default = "E",
-    Text = "Aimbot Keybind",
-    Mode = "Toggle",
-    SyncToggleState = true
-})
-
-LeftGroupbox:AddToggle("AimbotWallCheckToggle", {
-    Text = "WALL CHECK",
-    Default = false,
-    Callback = function(Value) AimbotWallCheck = Value end
-})
-
-LeftGroupbox:AddToggle("ShowFOVToggle", {
-    Text = "SHOW FOV",
-    Default = false,
-    Callback = function(Value)
-        ShowFOV = Value
-        UpdateFOV()
-    end
-}):AddColorPicker("FOVColorPicker", {
-    Default = Color3.fromRGB(255, 255, 255),
-    Title = "FOV Color",
-    Callback = function(Value)
-        FOVColor = Value
-        UpdateFOV()
-    end
-})
-
-LeftGroupbox:AddToggle("FillFOVToggle", {
-    Text = "FILL FOV",
-    Default = false,
-    Callback = function(Value)
-        FillFOV = Value
-        UpdateFOV()
-    end
-})
-
-LeftGroupbox:AddSlider("FOVTransparency", {
-    Text = "TRANSPARENCY FOV",
-    Default = 0, Min = 0, Max = 100, Rounding = 0, Suffix = "%",
-    Callback = function(Value) FOVTransparency = Value UpdateFOV() end
-})
-
-LeftGroupbox:AddSlider("FOVRadius", {
-    Text = "FOV RADIUS",
-    Default = 300, Min = 180, Max = 1000, Rounding = 0,
-    Callback = function(Value) FOVRadius = Value UpdateFOV() end
-})
-
--- Silent Aim UI
-RightGroupbox:AddToggle("SilentAimToggle", {
-    Text = "ENABLED (Silent)",
-    Default = false,
-    Callback = function(Value)
-        getgenv().SilentAimEnabled = Value
-        UpdateFOV()
-    end
-}):AddKeyPicker("SilentAimKey", {
-    Default = "Q",
-    Text = "Silent Aim Keybind",
-    Mode = "Toggle",
-    SyncToggleState = true
-})
-
-RightGroupbox:AddToggle("SilentWallCheckToggle", {
-    Text = "WALL CHECK",
-    Default = false,
-    Callback = function(Value) SilentWallCheck = Value end
-})
-
-RightGroupbox:AddToggle("SilentShowFOVToggle", {
-    Text = "SHOW FOV",
-    Default = false,
-    Callback = function(Value)
-        SilentShowFOV = Value
-        UpdateFOV()
-    end
-}):AddColorPicker("SilentFOVColorPicker", {
-    Default = Color3.fromRGB(255, 255, 255),
-    Title = "Silent FOV Color",
-    Callback = function(Value)
-        SilentFOVColor = Value
-        UpdateFOV()
-    end
-})
-
-RightGroupbox:AddToggle("SilentFillFOVToggle", {
-    Text = "FILL FOV",
-    Default = false,
-    Callback = function(Value)
-        SilentFillFOV = Value
-        UpdateFOV()
-    end
-})
-
-RightGroupbox:AddSlider("SilentFOVTransparency", {
-    Text = "TRANSPARENCY FOV",
-    Default = 0, Min = 0, Max = 100, Rounding = 0, Suffix = "%",
-    Callback = function(Value) SilentFOVTransparency = Value UpdateFOV() end
-})
-
-RightGroupbox:AddSlider("SilentFOVRadius", {
-    Text = "FOV RADIUS",
-    Default = 300, Min = 180, Max = 1000, Rounding = 0,
-    Callback = function(Value) SilentFOVRadius = Value UpdateFOV() end
-})
-
--- Loop Aimbot
-RunService.RenderStepped:Connect(function(dt)
-    if AimbotEnabled then
-        local target = GetClosestPlayerAimbot()
-        if target and isTargetValid(target) and target.Character then
-            local head = target.Character:FindFirstChild("Head") or target.Character:FindFirstChild("HumanoidRootPart")
-            if head then
-                Camera.CFrame = CFrame.new(Camera.CFrame.Position, head.Position)
+        -- Desactivar Fast Melee
+        getgenv().RivalsFastMelee = false
+        pcall(function()
+            for _, gcVal in ipairs(cachedMeleeTables) do
+                if rawget(gcVal, "MeleeCooldown") then gcVal.MeleeCooldown = 0.5 end
+                if rawget(gcVal, "SwingCooldown") then gcVal.SwingCooldown = 0.5 end
+                if rawget(gcVal, "SlashCooldown") then gcVal.SlashCooldown = 0.5 end
+                if rawget(gcVal, "AttackCooldown") then gcVal.AttackCooldown = 0.5 end
+                if rawget(gcVal, "HitCooldown") then gcVal.HitCooldown = 0.5 end
             end
-        end
+        end)
     end
+    updateStatus()
 end)
 
-Camera:GetPropertyChangedSignal("ViewportSize"):Connect(UpdateFOV)
-
--- Ajustes Menú
-local MenuGroup = Tabs["UI Settings"]:AddLeftGroupbox("Menu Settings")
-MenuGroup:AddToggle("KeybindMenuOpen", {
-    Default = Library.KeybindFrame.Visible,
-    Text = "Open Keybind Menu",
-    Callback = function(v) Library.KeybindFrame.Visible = v end
-})
-MenuGroup:AddLabel("Menu bind"):AddKeyPicker("MenuKeybind", {
-    Default = "RightShift",
-    NoUI = true,
-    Text = "Menu keybind"
-})
-MenuGroup:AddButton("Unload", function()
-    FOVCircle:Remove()
-    SilentFOVCircle:Remove()
-    Library:Unload()
+v11.CharacterAdded:Connect(function(c) 
+    v12 = c
+    v13 = c:WaitForChild('HumanoidRootPart') 
 end)
-
-Library.ToggleKeybind = Options.MenuKeybind
-ThemeManager:SetLibrary(Library)
-SaveManager:SetLibrary(Library)
-SaveManager:IgnoreThemeSettings()
-SaveManager:SetIgnoreIndexes({"MenuKeybind"})
-ThemeManager:SetFolder("ApocalypseHub")
-SaveManager:SetFolder("ApocalypseHub/configs")
-SaveManager:BuildConfigSection(Tabs["UI Settings"])
-ThemeManager:ApplyToTab(Tabs["UI Settings"])
-pcall(function() SaveManager:LoadAutoloadConfig() end)
-Library:Notify("gg", 5)
